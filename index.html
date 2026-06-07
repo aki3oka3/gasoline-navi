@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ガソリン価格ナビ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
+#header{padding:10px 16px;background:#fff;border-bottom:1px solid #e0e0e0}
+#header h1{font-size:16px;font-weight:700;color:#222}
+#header .sub{font-size:11px;color:#888;margin-top:2px}
+#legend-wrap{padding:8px 16px;background:#fff;border-bottom:1px solid #e0e0e0}
+#badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:20px;font-weight:500;border:1.5px solid}
+.b-fresh{background:#e6f4ea;color:#1a7a35;border-color:#1a7a35}
+.b-warn{background:#fff3cd;color:#996600;border-color:#cc8800}
+.b-stale{background:#fde8e8;color:#c0392b;border-color:#c0392b}
+.b-none{background:#f0f0f0;color:#666;border-color:#bbb}
+#legend-note{font-size:11px;color:#888}
+#map-hint{padding:9px 16px;font-size:13px;font-weight:600;color:#7a5c00;background:#fffbe6;border-bottom:2px solid #f0c040;text-align:center}
+#map-wrap{position:relative}
+#map{width:100%;height:360px}
+#locate-btn{position:absolute;bottom:10px;right:10px;z-index:1000;width:36px;height:36px;background:#fff;border:2px solid #bbb;border-radius:8px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+#locate-btn:hover{background:#f0f8f2;border-color:#1a7a35}
+#osm-status{padding:5px 16px;font-size:11px;color:#888;background:#f9f9f9;border-bottom:1px solid #eee;min-height:22px}
+#nickname-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center}
+#nickname-box{background:#fff;border-radius:12px;padding:24px 20px;width:300px;max-width:90vw}
+#nickname-box h2{font-size:15px;font-weight:700;margin-bottom:6px;color:#222}
+#nickname-box p{font-size:12px;color:#888;margin-bottom:14px;line-height:1.6}
+#nickname-input{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:15px;margin-bottom:12px}
+#nickname-save{width:100%;padding:11px;background:#1a7a35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+#panel{background:#fff;padding:14px 16px;border-top:3px solid #1a7a35;display:none}
+#panel h2{font-size:14px;font-weight:700;margin-bottom:6px;color:#333}
+#panel-mode-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin-bottom:10px;font-weight:600}
+#panel-mode-badge.new{background:#e6f4ea;color:#1a7a35;border:1px solid #1a7a35}
+#panel-mode-badge.edit{background:#fff3cd;color:#996600;border:1px solid #cc8800}
+.pin-name{font-size:13px;color:#1a7a35;font-weight:600;margin-bottom:6px;padding:6px 10px;background:#f0f8f2;border-radius:6px;border-left:3px solid #1a7a35;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pin-name-text{flex:1}
+.pin-name-edit-btn{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid #1a7a35;background:#fff;color:#1a7a35;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.pin-name-edit-btn:hover{background:#e6f4ea}
+#pin-delete-btn:hover{background:#fde8e8!important}
+.leaflet-control-attribution img{display:none!important}
+#name-edit-row{display:none;margin-bottom:10px}
+#name-edit-row label{display:block;font-size:12px;color:#555;margin-bottom:4px;font-weight:600}
+#name-edit-row input{width:100%;padding:9px 10px;border:1px solid #1a7a35;border-radius:6px;font-size:14px;font-family:inherit}
+.name-edit-btns{display:flex;gap:6px;margin-top:6px}
+#name-edit-save{flex:2;padding:7px;background:#1a7a35;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+#name-edit-cancel{flex:1;padding:7px;background:#fff;color:#888;border:1px solid #ddd;border-radius:6px;font-size:13px;cursor:pointer}
+.form-row{margin-bottom:10px}
+.form-row label{display:block;font-size:12px;color:#555;margin-bottom:4px;font-weight:600}
+.form-row input,.form-row textarea{width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit}
+.form-row textarea{resize:vertical;min-height:56px}
+#name-row{display:none}
+.date-display{font-size:13px;font-weight:500;color:#333;margin-top:4px;min-height:18px}
+.date-btns{display:flex;gap:6px;margin-top:6px}
+.date-btn{font-size:12px;padding:5px 14px;border-radius:14px;border:1px solid #ddd;background:#fff;cursor:pointer;color:#666}
+.date-btn.active{background:#e6f4ea;color:#1a7a35;border-color:#1a7a35;font-weight:600}
+.submitter-info{font-size:11px;color:#aaa;margin-top:8px;padding:4px 8px;background:#f9f9f9;border-radius:4px}
+#err-msg{font-size:12px;color:#c0392b;margin-top:6px;min-height:16px}
+.btn-row{display:flex;gap:8px;margin-top:12px}
+.btn-row-sub{display:flex;gap:8px;margin-top:8px}
+#submit-btn{flex:3;padding:11px;background:#1a7a35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+#submit-btn:hover{background:#15612b}
+#cancel-btn{flex:1;padding:11px;background:#fff;color:#888;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
+#clear-price-btn{flex:1;padding:9px 10px;background:#fff;color:#996600;border:1px solid #e8d080;border-radius:8px;font-size:12px;cursor:pointer;display:none}
+#clear-price-btn:hover{background:#fffbe6}
+#delete-btn{flex:1;padding:9px 10px;background:#fff;color:#c0392b;border:1px solid #e0b0b0;border-radius:8px;font-size:12px;cursor:pointer;display:none}
+#delete-btn:hover{background:#fde8e8}
+#station-list{padding:10px 16px 24px}
+#station-list h2{font-size:13px;font-weight:700;color:#555;margin-bottom:8px}
+.s-item{background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:6px;border-left:4px solid #ddd;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.06);gap:8px;cursor:pointer}
+.s-item:hover{opacity:.85}
+.s-item.fresh{border-left-color:#1a7a35}
+.s-item.warn{border-left-color:#cc8800}
+.s-item.stale{border-left-color:#c0392b}
+.s-item.none{border-left-color:#bbb}
+.s-info{flex:1;min-width:0}
+.s-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-sub{font-size:11px;color:#999;margin-top:2px}
+.s-comment{font-size:11px;color:#666;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s-by{font-size:10px;color:#bbb;margin-top:1px}
+.s-price{font-size:18px;font-weight:700;white-space:nowrap;text-align:right}
+.s-price.fresh{color:#1a7a35}.s-price.warn{color:#996600}.s-price.stale{color:#c0392b}
+.gas-pin{display:inline-block;border:2px solid #999;border-radius:8px;padding:3px 7px;font-size:12px;font-weight:700;color:#999;white-space:nowrap;line-height:1.2;box-shadow:0 1px 4px rgba(0,0,0,.18);cursor:pointer;background:#f5f5f5}
+.gas-pin.fresh{background:#fff;border-color:#1a7a35;color:#1a7a35}
+.gas-pin.warn{background:#fff;border-color:#cc8800;color:#996600}
+.gas-pin.stale{background:#fff;border-color:#c0392b;color:#c0392b}
+.gas-pin.new-pin{background:#fff;border-color:#4285f4;color:#4285f4;border-style:dashed}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 22px;border-radius:20px;font-size:13px;display:none;z-index:9999;white-space:nowrap}
+.popup-price{font-size:20px;font-weight:700;margin:4px 0 2px}
+.popup-price.fresh{color:#1a7a35}.popup-price.warn{color:#996600}.popup-price.stale{color:#c0392b}.popup-price.none{color:#aaa;font-size:14px;font-weight:400}
+.popup-comment{font-size:12px;color:#555;margin:3px 0;padding:4px 8px;background:#f9f9f9;border-radius:4px}
+.popup-date{font-size:11px;color:#888;margin-top:3px}
+.popup-by{font-size:10px;color:#bbb;margin-top:2px}
+.popup-edit-btn{display:block;width:100%;margin-top:8px;padding:7px;background:#e8f5e9;border:1px solid #1a7a35;color:#1a7a35;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;text-align:center}
+#loading-msg{padding:40px;text-align:center;color:#888;font-size:14px}
+</style>
+</head>
+<body>
+
+<div id="nickname-modal" style="display:none">
+  <div id="nickname-box">
+    <h2>📛 はじめに</h2>
+    <p>情報の信頼性のため、ニックネームを登録してください。<br>匿名OK・本名不要です。次回から自動入力されます。</p>
+    <input type="text" id="nickname-input" placeholder="例：なごっち、A" maxlength="20">
+    <button id="nickname-save" onclick="saveNickname()">決定</button>
+  </div>
+</div>
+
+<div id="header">
+  <h1>⛽ ガソリン価格ナビ</h1>
+  <div class="sub" id="header-sub">レギュラー — 沖縄県</div>
+</div>
+<div id="legend-wrap">
+  <div id="badge-row">
+    <span class="badge b-fresh">3日以内</span>
+    <span class="badge b-warn">3〜5日</span>
+    <span class="badge b-stale">5日超</span>
+    <span class="badge b-none">未登録</span>
+  </div>
+  <div id="legend-note">ピンの色は確認日からの経過日数を表しています。</div>
+</div>
+<div id="map-hint">📍 スタンドをタップして価格登録 / 空白タップで新規追加</div>
+<div id="map-wrap">
+  <div id="map"></div>
+  <button id="locate-btn" onclick="goToCurrentLocation()" title="現在地へ">📍</button>
+</div>
+<div id="osm-status">⏳ スタンド情報を読み込み中...</div>
+
+<div id="panel">
+  <h2 id="panel-title">⛽ 価格を登録する</h2>
+  <div id="panel-mode-badge" class="new">新規追加</div>
+  <div id="name-row" class="form-row">
+    <label>スタンド名</label>
+    <input type="text" id="in-name" placeholder="例：ENEOSおんな店">
+  </div>
+  <div class="pin-name" id="pin-name" style="display:none">
+    <span class="pin-name-text" id="pin-name-text"></span>
+    <button class="pin-name-edit-btn" onclick="openNameEdit()">✏️ 名称変更</button>
+    <button class="pin-name-edit-btn" id="pin-delete-btn" onclick="deleteStation()" style="border-color:#c0392b;color:#c0392b">🗑️ 削除</button>
+  </div>
+  <div id="name-edit-row">
+    <label>スタンド名を変更</label>
+    <input type="text" id="in-name-edit" placeholder="新しいスタンド名">
+    <div class="name-edit-btns">
+      <button id="name-edit-cancel" onclick="closeNameEdit()">キャンセル</button>
+      <button id="name-edit-save" onclick="saveNameEdit()">✔ 変更を保存</button>
+    </div>
+  </div>
+  <div class="form-row">
+    <label>価格（¥/L）</label>
+    <input type="number" id="in-price" min="100" max="300" placeholder="" inputmode="numeric">
+  </div>
+  <div class="form-row">
+    <label>コメント（任意）</label>
+    <textarea id="in-comment" placeholder="例：楽天ポイント10倍、現金のみ、セルフ"></textarea>
+  </div>
+  <div class="form-row">
+    <label>確認日</label>
+    <div class="date-display" id="date-display"></div>
+    <div class="date-btns">
+      <button class="date-btn" id="dbtn-0" onclick="setDateOffset(0)">今日</button>
+      <button class="date-btn" id="dbtn-1" onclick="setDateOffset(1)">昨日</button>
+      <button class="date-btn" id="dbtn-2" onclick="setDateOffset(2)">一昨日</button>
+    </div>
+  </div>
+  <div class="submitter-info" id="submitter-info"></div>
+  <div id="err-msg"></div>
+  <div class="btn-row">
+    <button id="cancel-btn" onclick="closePanel()">キャンセル</button>
+    <button id="submit-btn" onclick="submitForm()">💾 登録する</button>
+  </div>
+  <div class="btn-row-sub">
+    <button id="clear-price-btn" onclick="clearPrice()">💰 価格をクリア</button>
+  </div>
+</div>
+
+<div id="station-list">
+  <h2>登録済みスタンド一覧</h2>
+  <div id="list-container">
+    <div id="loading-msg">⏳ 読み込み中...</div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzm2jttTMiQPoAx_ZgPi-aL5JCUHydsZUwG4Q7w82vbDgmbHbIkQ-bnwlmoNIyQXeac/exec";
+
+const WEEK=["日","月","火","水","木","金","土"];
+const DAY=86400000;
+let map,markers={},stations={};
+let editingId=null,isNewMode=false;
+let selectedOffset=0,currentLocationMarker=null,tempMarker=null;
+let nextCustomId=1;
+let myNickname="",myDevice="";
+
+function getDevice(){
+  const ua=navigator.userAgent;
+  if(/iPhone/.test(ua))return"iPhone";
+  if(/iPad/.test(ua))return"iPad";
+  if(/Android.*Mobile/.test(ua))return"Android(スマホ)";
+  if(/Android/.test(ua))return"Android(タブレット)";
+  if(/Windows/.test(ua))return"Windows PC";
+  if(/Mac/.test(ua))return"Mac";
+  return"不明";
+}
+function saveNickname(){
+  const val=document.getElementById("nickname-input").value.trim();
+  if(!val){alert("ニックネームを入力してください");return;}
+  localStorage.setItem("gas_nickname",val);
+  myNickname=val;
+  document.getElementById("nickname-modal").style.display="none";
+  updateSubmitterInfo();
+  initMap();
+}
+function updateSubmitterInfo(){
+  document.getElementById("submitter-info").textContent="登録者："+myNickname;
+}
+function getNow(){return Date.now();}
+function offsetToTs(offset){
+  const d=new Date();d.setDate(d.getDate()-offset);
+  return new Date(d.getFullYear(),d.getMonth(),d.getDate(),12,0,0).getTime();
+}
+function tsToLabel(ts){
+  const d=new Date(ts);
+  return (d.getMonth()+1)+"/"+d.getDate()+" "+WEEK[d.getDay()]+"曜日";
+}
+function confirmedDateStr(ts){
+  const d=new Date(ts);
+  return d.getFullYear()+"/"+(d.getMonth()+1)+"/"+d.getDate();
+}
+function ageLabelFull(ts){
+  const days=(getNow()-ts)/DAY;
+  if(days<1)return"確認日："+tsToLabel(ts)+"（今日）";
+  if(days<2)return"確認日："+tsToLabel(ts)+"（昨日）";
+  if(days<5)return"確認日："+tsToLabel(ts)+"（"+Math.floor(days)+"日前）";
+  return"確認日："+tsToLabel(ts)+"（5日超）";
+}
+function freshClass(ts){
+  if(!ts)return"none";
+  const d=(getNow()-ts)/DAY;
+  if(d<3)return"fresh";if(d<5)return"warn";return"stale";
+}
+function parseDateToTs(str){
+  if(!str)return null;
+  const d=new Date(str);
+  return isNaN(d)?null:d.getTime();
+}
+function setDateOffset(offset){
+  selectedOffset=offset;
+  const d=new Date(offsetToTs(offset));
+  let lbl=(d.getMonth()+1)+"/"+d.getDate()+" "+WEEK[d.getDay()]+"曜日";
+  lbl+=(offset===0?"（今日）":offset===1?"（昨日）":"（一昨日）");
+  document.getElementById("date-display").textContent=lbl;
+  [0,1,2].forEach(i=>document.getElementById("dbtn-"+i).className="date-btn"+(i===offset?" active":""));
+}
+function showToast(msg){
+  const t=document.getElementById("toast");
+  t.textContent=msg;t.style.display="block";
+  setTimeout(()=>t.style.display="none",2500);
+}
+function makeIcon(cls,price){
+  const label=price?"¥"+price:"?";
+  return L.divIcon({html:`<div class="gas-pin ${cls}">${label}</div>`,className:"",iconAnchor:[22,22],popupAnchor:[0,-26]});
+}
+function makeTempIcon(){
+  return L.divIcon({html:`<div class="gas-pin new-pin">新規</div>`,className:"",iconAnchor:[22,22],popupAnchor:[0,-26]});
+}
+function buildPopup(id){
+  const s=stations[id];if(!s)return"";
+  const cls=freshClass(s.ts||null);
+  const priceHtml=s.price
+    ?`<div class="popup-price ${cls}">¥${s.price} /L</div>`
+    :`<div class="popup-price none">価格未登録</div>`;
+  const commentHtml=s.comment?`<div class="popup-comment">💬 ${s.comment}</div>`:"";
+  const dateHtml=s.ts?`<div class="popup-date">🕐 ${ageLabelFull(s.ts)}</div>`:"";
+  const byHtml=s.nickname?`<div class="popup-by">👤 ${s.nickname}</div>`:"";
+  return`<b style="font-size:13px">${s.name}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}
+    <button class="popup-edit-btn" onclick="map.closePopup();openEditPanel('${id}')">✏️ 価格を更新する</button>`;
+}
+function updateMarker(id){
+  const s=stations[id];if(!s||!markers[id])return;
+  markers[id].setIcon(makeIcon(freshClass(s.ts||null),s.price||null));
+  markers[id].bindPopup(buildPopup(id));
+}
+function addMarker(id){
+  const s=stations[id];
+  const cls=freshClass(s.ts||null);
+  const m=L.marker([s.lat,s.lng],{icon:makeIcon(cls,s.price||null)}).addTo(map);
+  m.bindPopup(buildPopup(id));
+  markers[id]=m;
+}
+
+// GAS通信（GETのみ、パラメータでaction指定）
+async function gasCall(params){
+  const url=GAS_URL+"?"+new URLSearchParams(params);
+  const res=await fetch(url);
+  return res.json();
+}
+
+// 全データをGASから取得してマップに展開
+async function loadFromServer(){
+  try{
+    const result=await gasCall({action:"getAll"});
+    if(result.status!=="ok") throw new Error(result.message);
+    const rows=result.data||[];
+    document.getElementById("osm-status").textContent=
+      "📍 "+rows.length+"件のスタンドを読み込みました（スプレッドシート）";
+    document.getElementById("header-sub").textContent=
+      "レギュラー — 沖縄県（"+rows.length+"件）";
+
+    rows.forEach(row=>{
+      const id=row.id;
+      const lat=parseFloat(row.lat);
+      const lng=parseFloat(row.lng);
+      if(!id||isNaN(lat)||isNaN(lng))return;
+      const ts=parseDateToTs(row.confirmedDate);
+      stations[id]={
+        id,
+        name:row.name||"ガソリンスタンド",
+        lat,lng,
+        price:row.price?Number(row.price):null,
+        comment:row.comment||"",
+        ts,
+        nickname:row.nickname||"",
+        device:row.device||""
+      };
+      addMarker(id);
+    });
+    renderList();
+  }catch(e){
+    document.getElementById("osm-status").textContent="⚠️ データ取得失敗："+e.message;
+    document.getElementById("list-container").innerHTML=
+      '<div style="text-align:center;color:#c0392b;font-size:13px;padding:16px">サーバーからデータを取得できませんでした</div>';
+  }
+}
+
+function openEditPanel(id){
+  isNewMode=false;editingId=id;
+  // 新規ピンが残っていれば削除
+  if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
+  const s=stations[id];
+  document.getElementById("panel-title").textContent="⛽ 価格を更新する";
+  document.getElementById("panel-mode-badge").textContent="編集中："+s.name;
+  document.getElementById("panel-mode-badge").className="edit";
+  document.getElementById("name-row").style.display="none";
+  document.getElementById("pin-name").style.display="flex";
+  document.getElementById("pin-name-text").textContent="📍 "+s.name;
+  document.getElementById("name-edit-row").style.display="none";
+  document.getElementById("in-price").value=s.price||(getSuggestedPrice()||"");
+  document.getElementById("in-comment").value=s.comment||"";
+  document.getElementById("err-msg").textContent="";
+  document.getElementById("clear-price-btn").style.display=s.price?"inline-block":"none";
+  updateSubmitterInfo();
+  setDateOffset(0);
+  document.getElementById("panel").style.display="block";
+  document.getElementById("map-hint").textContent="✏️ 下のフォームで価格を更新してください";
+  document.getElementById("panel").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function getSuggestedPrice(){
+  const fresh=Object.values(stations).filter(s=>s.price&&s.ts&&(getNow()-s.ts)/DAY<3);
+  if(!fresh.length)return null;
+  return Math.max(...fresh.map(s=>s.price));
+}
+function openNewPanel(lat,lng){
+  isNewMode=true;editingId=null;
+  if(tempMarker)map.removeLayer(tempMarker);
+  tempMarker=L.marker([lat,lng],{icon:makeTempIcon(),zIndexOffset:1000}).addTo(map);
+  tempMarker._newLat=lat;tempMarker._newLng=lng;
+  document.getElementById("panel-title").textContent="⛽ 新規スタンドを追加";
+  document.getElementById("panel-mode-badge").textContent="新規追加";
+  document.getElementById("panel-mode-badge").className="new";
+  document.getElementById("name-row").style.display="block";
+  document.getElementById("pin-name").style.display="none";
+  ["in-name","in-comment"].forEach(i=>document.getElementById(i).value="");
+  const suggested=getSuggestedPrice();
+  document.getElementById("in-price").value=suggested||"";
+  document.getElementById("err-msg").textContent="";
+  document.getElementById("clear-price-btn").style.display="none";
+  updateSubmitterInfo();
+  setDateOffset(0);
+  document.getElementById("panel").style.display="block";
+  document.getElementById("map-hint").textContent="📍 新規スタンドの情報を入力してください";
+  document.getElementById("panel").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function closePanel(){
+  editingId=null;isNewMode=false;
+  if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
+  document.getElementById("panel").style.display="none";
+  document.getElementById("name-edit-row").style.display="none";
+  document.getElementById("map-hint").textContent="📍 スタンドをタップして価格登録 / 空白タップで新規追加";
+  ["in-price","in-comment","in-name"].forEach(i=>document.getElementById(i).value="");
+  document.getElementById("err-msg").textContent="";
+}
+async function submitForm(){
+  const price=parseInt(document.getElementById("in-price").value);
+  const comment=document.getElementById("in-comment").value.trim();
+  if(isNaN(price)||price<100||price>300){
+    document.getElementById("err-msg").textContent="価格を100〜300の範囲で入力してください";return;
+  }
+  const ts=offsetToTs(selectedOffset);
+  const cds=confirmedDateStr(ts);
+  document.getElementById("submit-btn").disabled=true;
+  try{
+    if(isNewMode){
+      const name=document.getElementById("in-name").value.trim();
+      if(!name){document.getElementById("err-msg").textContent="スタンド名を入力してください";return;}
+      const lat=tempMarker._newLat,lng=tempMarker._newLng;
+      const id="custom_"+(Date.now());
+      await gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
+      stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
+      if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
+      addMarker(id);
+    }else{
+      if(!editingId)return;
+      await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
+        lat:stations[editingId].lat,lng:stations[editingId].lng,
+        price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
+      stations[editingId].price=price;stations[editingId].comment=comment;
+      stations[editingId].ts=ts;stations[editingId].nickname=myNickname;stations[editingId].device=myDevice;
+      updateMarker(editingId);
+    }
+    renderList();closePanel();showToast("✅ 登録しました");
+  }catch(e){
+    document.getElementById("err-msg").textContent="通信エラー："+e.message;
+  }finally{
+    document.getElementById("submit-btn").disabled=false;
+  }
+}
+async function clearPrice(){
+  if(!editingId)return;
+  if(!confirm("「"+stations[editingId].name+"」\n価格・コメント・確認日をクリアします。\nスタンド自体は地図に残ります。"))return;
+  await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
+    lat:stations[editingId].lat,lng:stations[editingId].lng,
+    price:"",comment:"",confirmedDate:"",nickname:myNickname,device:myDevice});
+  stations[editingId].price=null;stations[editingId].comment="";stations[editingId].ts=null;
+  updateMarker(editingId);renderList();closePanel();showToast("💰 価格をクリアしました");
+}
+function openNameEdit(){
+  if(!editingId)return;
+  const s=stations[editingId];
+  document.getElementById("in-name-edit").value=s.name;
+  document.getElementById("pin-name").style.display="none";
+  document.getElementById("name-edit-row").style.display="block";
+  document.getElementById("in-name-edit").focus();
+}
+function closeNameEdit(){
+  document.getElementById("name-edit-row").style.display="none";
+  document.getElementById("pin-name").style.display="flex";
+}
+async function saveNameEdit(){
+  if(!editingId)return;
+  const newName=document.getElementById("in-name-edit").value.trim();
+  if(!newName){alert("スタンド名を入力してください");return;}
+  const s=stations[editingId];
+  try{
+    await gasCall({action:"upsert",id:editingId,name:newName,
+      lat:s.lat,lng:s.lng,
+      price:s.price||"",comment:s.comment||"",
+      confirmedDate:s.ts?confirmedDateStr(s.ts):"",
+      nickname:myNickname,device:myDevice});
+    stations[editingId].name=newName;
+    updateMarker(editingId);
+    renderList();
+    document.getElementById("pin-name-text").textContent="📍 "+newName;
+    document.getElementById("panel-mode-badge").textContent="編集中："+newName;
+    closeNameEdit();
+    showToast("✅ スタンド名を変更しました");
+  }catch(e){
+    alert("通信エラー："+e.message);
+  }
+}
+async function deleteStation(){
+  if(!editingId)return;
+  if(!confirm("「"+stations[editingId].name+"」\nこのスタンドを完全に削除しますか？\n※スプレッドシートからも削除されます"))return;
+  await gasCall({action:"delete",id:editingId});
+  if(markers[editingId]){map.removeLayer(markers[editingId]);delete markers[editingId];}
+  delete stations[editingId];
+  renderList();closePanel();showToast("🗑️ 削除しました");
+}
+function renderList(){
+  const c=document.getElementById("list-container");
+  const arr=Object.values(stations).filter(s=>s.price);
+  if(!arr.length){
+    c.innerHTML='<div style="text-align:center;color:#aaa;font-size:13px;padding:16px">スタンドをタップして価格を登録してください</div>';return;
+  }
+  arr.sort((a,b)=>a.price-b.price);
+  c.innerHTML=arr.map(s=>{
+    const cls=freshClass(s.ts||null);
+    return`<div class="s-item ${cls}" onclick="focusStation('${s.id}')">
+      <div class="s-info">
+        <div class="s-name">${s.name}</div>
+        ${s.ts?`<div class="s-sub">${ageLabelFull(s.ts)}</div>`:""}
+        ${s.comment?`<div class="s-comment">💬 ${s.comment}</div>`:""}
+        ${s.nickname?`<div class="s-by">👤 ${s.nickname}</div>`:""}
+      </div>
+      <div class="s-price ${cls}">¥${s.price}</div>
+    </div>`;
+  }).join("");
+}
+function focusStation(id){
+  const s=stations[id];if(!s)return;
+  map.setView([s.lat,s.lng],16,{animate:true});
+  if(markers[id])markers[id].openPopup();
+}
+function goToCurrentLocation(){
+  if(!navigator.geolocation){showToast("位置情報が使えません");return;}
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const lat=pos.coords.latitude,lng=pos.coords.longitude;
+    map.setView([lat,lng],15,{animate:true});
+    if(currentLocationMarker)map.removeLayer(currentLocationMarker);
+    const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
+    currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地").openPopup();
+  },()=>showToast("位置情報を取得できませんでした"));
+}
+
+function initMap(){
+  map=L.map("map").setView([26.591,127.977],13);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19
+  }).addTo(map);
+  map.on("click",e=>openNewPanel(e.latlng.lat,e.latlng.lng));
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(pos=>{
+      map.setView([pos.coords.latitude,pos.coords.longitude],15);
+      const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
+      currentLocationMarker=L.marker([pos.coords.latitude,pos.coords.longitude],{icon}).addTo(map).bindPopup("🔵 現在地");
+    },()=>{});
+  }
+  setDateOffset(0);
+  loadFromServer();
+}
+
+window.addEventListener("load",()=>{
+  myDevice=getDevice();
+  const saved=localStorage.getItem("gas_nickname");
+  if(saved){
+    myNickname=saved;
+    updateSubmitterInfo();
+    initMap();
+  }else{
+    document.getElementById("nickname-modal").style.display="flex";
+  }
+});
+</script>
+</body>
+</html>
