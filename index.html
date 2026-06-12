@@ -201,8 +201,14 @@ const DAY=86400000;
 let map,markers={},stations={};
 let editingId=null,isNewMode=false;
 let selectedOffset=0,currentLocationMarker=null,tempMarker=null;
-let nextCustomId=1;
 let myNickname="",myDevice="";
+
+// ユーザー入力をHTMLに埋め込む前のエスケープ（XSS対策）
+function esc(s){
+  return String(s==null?"":s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
 
 function getDevice(){
   const ua=navigator.userAgent;
@@ -282,11 +288,17 @@ function buildPopup(id){
   const priceHtml=s.price
     ?`<div class="popup-price ${cls}">¥${s.price} /L</div>`
     :`<div class="popup-price none">価格未登録</div>`;
-  const commentHtml=s.comment?`<div class="popup-comment">💬 ${s.comment}</div>`:"";
+  const commentHtml=s.comment?`<div class="popup-comment">💬 ${esc(s.comment)}</div>`:"";
   const dateHtml=s.ts?`<div class="popup-date">🕐 ${ageLabelFull(s.ts)}</div>`:"";
-  const byHtml=s.nickname?`<div class="popup-by">👤 ${s.nickname}</div>`:"";
-  return`<b style="font-size:13px">${s.name}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}
-    <button class="popup-edit-btn" onclick="map.closePopup();openEditPanel('${id}')">✏️ 価格を更新する</button>`;
+  const byHtml=s.nickname?`<div class="popup-by">👤 ${esc(s.nickname)}</div>`:"";
+  const div=document.createElement("div");
+  div.innerHTML=`<b style="font-size:13px">${esc(s.name)}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}`;
+  const btn=document.createElement("button");
+  btn.className="popup-edit-btn";
+  btn.textContent="✏️ 価格を更新する";
+  btn.onclick=()=>{map.closePopup();openEditPanel(id);};
+  div.appendChild(btn);
+  return div;
 }
 function updateMarker(id){
   const s=stations[id];if(!s||!markers[id])return;
@@ -302,18 +314,25 @@ function addMarker(id){
 }
 
 // GAS通信（GETのみ、パラメータでaction指定）
+// HTTPエラー・サーバー側のエラー応答を検知して例外にする
 async function gasCall(params){
   const url=GAS_URL+"?"+new URLSearchParams(params);
   const res=await fetch(url);
-  return res.json();
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  const result=await res.json();
+  if(result&&result.status&&result.status!=="ok"){
+    throw new Error(result.message||"サーバーエラー");
+  }
+  return result;
 }
 
-// 全データをGASから取得してマップに展開
+// 全データをGASから取得してマップに展開（再取得時は既存マーカーを消してから反映）
 async function loadFromServer(){
   try{
     const result=await gasCall({action:"getAll"});
-    if(result.status!=="ok") throw new Error(result.message);
     const rows=result.data||[];
+    Object.values(markers).forEach(m=>map.removeLayer(m));
+    markers={};stations={};
     document.getElementById("osm-status").textContent=
       "📍 "+rows.length+"件のスタンドを読み込みました（スプレッドシート）";
     document.getElementById("header-sub").textContent=
@@ -325,11 +344,12 @@ async function loadFromServer(){
       const lng=parseFloat(row.lng);
       if(!id||isNaN(lat)||isNaN(lng))return;
       const ts=parseDateToTs(row.confirmedDate);
+      const p=Number(row.price);
       stations[id]={
         id,
         name:row.name||"ガソリンスタンド",
         lat,lng,
-        price:row.price?Number(row.price):null,
+        price:(row.price!==""&&row.price!=null&&isFinite(p))?p:null,
         comment:row.comment||"",
         ts,
         nickname:row.nickname||"",
@@ -357,7 +377,11 @@ function openEditPanel(id){
   document.getElementById("pin-name").style.display="flex";
   document.getElementById("pin-name-text").textContent="📍 "+s.name;
   document.getElementById("name-edit-row").style.display="none";
-  document.getElementById("in-price").value=s.price||(getSuggestedPrice()||"");
+  // 誤登録防止のため自動入力はせず、参考価格はプレースホルダーで表示する
+  const editPriceInput=document.getElementById("in-price");
+  const editSuggested=getSuggestedPrice();
+  editPriceInput.value=s.price||"";
+  editPriceInput.placeholder=editSuggested?("参考：直近3日の最高値 "+editSuggested):"";
   document.getElementById("in-comment").value=s.comment||"";
   document.getElementById("err-msg").textContent="";
   document.getElementById("clear-price-btn").style.display=s.price?"inline-block":"none";
@@ -383,8 +407,11 @@ function openNewPanel(lat,lng){
   document.getElementById("name-row").style.display="block";
   document.getElementById("pin-name").style.display="none";
   ["in-name","in-comment"].forEach(i=>document.getElementById(i).value="");
+  // 誤登録防止のため自動入力はせず、参考価格はプレースホルダーで表示する
+  const newPriceInput=document.getElementById("in-price");
   const suggested=getSuggestedPrice();
-  document.getElementById("in-price").value=suggested||"";
+  newPriceInput.value="";
+  newPriceInput.placeholder=suggested?("参考：直近3日の最高値 "+suggested):"";
   document.getElementById("err-msg").textContent="";
   document.getElementById("clear-price-btn").style.display="none";
   updateSubmitterInfo();
@@ -418,19 +445,15 @@ async function submitForm(){
       const lat=tempMarker._newLat,lng=tempMarker._newLng;
       const id="custom_"+(Date.now());
       await gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
-      stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
-      if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
-      addMarker(id);
     }else{
       if(!editingId)return;
       await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
         lat:stations[editingId].lat,lng:stations[editingId].lng,
         price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
-      stations[editingId].price=price;stations[editingId].comment=comment;
-      stations[editingId].ts=ts;stations[editingId].nickname=myNickname;stations[editingId].device=myDevice;
-      updateMarker(editingId);
     }
-    renderList();closePanel();showToast("✅ 登録しました");
+    // 他のユーザーの更新も含めてサーバーから取り直す
+    await loadFromServer();
+    closePanel();showToast("✅ 登録しました");
   }catch(e){
     document.getElementById("err-msg").textContent="通信エラー："+e.message;
   }finally{
@@ -440,11 +463,15 @@ async function submitForm(){
 async function clearPrice(){
   if(!editingId)return;
   if(!confirm("「"+stations[editingId].name+"」\n価格・コメント・確認日をクリアします。\nスタンド自体は地図に残ります。"))return;
-  await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
-    lat:stations[editingId].lat,lng:stations[editingId].lng,
-    price:"",comment:"",confirmedDate:"",nickname:myNickname,device:myDevice});
-  stations[editingId].price=null;stations[editingId].comment="";stations[editingId].ts=null;
-  updateMarker(editingId);renderList();closePanel();showToast("💰 価格をクリアしました");
+  try{
+    await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
+      lat:stations[editingId].lat,lng:stations[editingId].lng,
+      price:"",comment:"",confirmedDate:"",nickname:myNickname,device:myDevice});
+    await loadFromServer();
+    closePanel();showToast("💰 価格をクリアしました");
+  }catch(e){
+    document.getElementById("err-msg").textContent="通信エラー："+e.message;
+  }
 }
 function openNameEdit(){
   if(!editingId)return;
@@ -469,9 +496,7 @@ async function saveNameEdit(){
       price:s.price||"",comment:s.comment||"",
       confirmedDate:s.ts?confirmedDateStr(s.ts):"",
       nickname:myNickname,device:myDevice});
-    stations[editingId].name=newName;
-    updateMarker(editingId);
-    renderList();
+    await loadFromServer();
     document.getElementById("pin-name-text").textContent="📍 "+newName;
     document.getElementById("panel-mode-badge").textContent="編集中："+newName;
     closeNameEdit();
@@ -483,10 +508,13 @@ async function saveNameEdit(){
 async function deleteStation(){
   if(!editingId)return;
   if(!confirm("「"+stations[editingId].name+"」\nこのスタンドを完全に削除しますか？\n※スプレッドシートからも削除されます"))return;
-  await gasCall({action:"delete",id:editingId});
-  if(markers[editingId]){map.removeLayer(markers[editingId]);delete markers[editingId];}
-  delete stations[editingId];
-  renderList();closePanel();showToast("🗑️ 削除しました");
+  try{
+    await gasCall({action:"delete",id:editingId});
+    await loadFromServer();
+    closePanel();showToast("🗑️ 削除しました");
+  }catch(e){
+    document.getElementById("err-msg").textContent="通信エラー："+e.message;
+  }
 }
 function renderList(){
   const c=document.getElementById("list-container");
@@ -497,16 +525,19 @@ function renderList(){
   arr.sort((a,b)=>a.price-b.price);
   c.innerHTML=arr.map(s=>{
     const cls=freshClass(s.ts||null);
-    return`<div class="s-item ${cls}" onclick="focusStation('${s.id}')">
+    return`<div class="s-item ${cls}" data-id="${esc(s.id)}">
       <div class="s-info">
-        <div class="s-name">${s.name}</div>
+        <div class="s-name">${esc(s.name)}</div>
         ${s.ts?`<div class="s-sub">${ageLabelFull(s.ts)}</div>`:""}
-        ${s.comment?`<div class="s-comment">💬 ${s.comment}</div>`:""}
-        ${s.nickname?`<div class="s-by">👤 ${s.nickname}</div>`:""}
+        ${s.comment?`<div class="s-comment">💬 ${esc(s.comment)}</div>`:""}
+        ${s.nickname?`<div class="s-by">👤 ${esc(s.nickname)}</div>`:""}
       </div>
       <div class="s-price ${cls}">¥${s.price}</div>
     </div>`;
   }).join("");
+  c.querySelectorAll(".s-item").forEach(el=>{
+    el.addEventListener("click",()=>focusStation(el.dataset.id));
+  });
 }
 function focusStation(id){
   const s=stations[id];if(!s)return;
@@ -539,6 +570,10 @@ function initMap(){
   }
   setDateOffset(0);
   loadFromServer();
+  // 3分ごとに自動更新（入力パネルを開いている間はスキップ）
+  setInterval(()=>{
+    if(document.getElementById("panel").style.display!=="block")loadFromServer();
+  },180000);
 }
 
 window.addEventListener("load",()=>{
