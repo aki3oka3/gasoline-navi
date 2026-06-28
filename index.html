@@ -48,7 +48,14 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 .pin-name-text{flex:1}
 .pin-name-edit-btn{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid #1a7a35;background:#fff;color:#1a7a35;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .pin-name-edit-btn:hover{background:#e6f4ea}
-#pin-delete-btn:hover{background:#fde8e8!important}
+/* 独自確認ダイアログ */
+#confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;display:none;align-items:center;justify-content:center}
+#confirm-overlay.show{display:flex}
+#confirm-box{background:#fff;border-radius:12px;padding:20px;width:280px;max-width:90vw}
+#confirm-msg{font-size:14px;color:#333;margin-bottom:16px;line-height:1.6;white-space:pre-line}
+#confirm-btns{display:flex;gap:8px}
+#confirm-ok{flex:2;padding:10px;background:#c0392b;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+#confirm-cancel{flex:1;padding:10px;background:#fff;color:#888;border:1px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer}
 .leaflet-control-attribution img{display:none!important}
 #name-edit-row{display:none;margin-bottom:10px}
 #name-edit-row label{display:block;font-size:12px;color:#555;margin-bottom:4px;font-weight:600}
@@ -107,6 +114,16 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 </style>
 </head>
 <body>
+
+<div id="confirm-overlay">
+  <div id="confirm-box">
+    <div id="confirm-msg"></div>
+    <div id="confirm-btns">
+      <button id="confirm-cancel">キャンセル</button>
+      <button id="confirm-ok">削除する</button>
+    </div>
+  </div>
+</div>
 
 <div id="nickname-modal" style="display:none">
   <div id="nickname-box">
@@ -201,14 +218,8 @@ const DAY=86400000;
 let map,markers={},stations={};
 let editingId=null,isNewMode=false;
 let selectedOffset=0,currentLocationMarker=null,tempMarker=null;
+let nextCustomId=1;
 let myNickname="",myDevice="";
-
-// ユーザー入力をHTMLに埋め込む前のエスケープ（XSS対策）
-function esc(s){
-  return String(s==null?"":s)
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-}
 
 function getDevice(){
   const ua=navigator.userAgent;
@@ -288,17 +299,11 @@ function buildPopup(id){
   const priceHtml=s.price
     ?`<div class="popup-price ${cls}">¥${s.price} /L</div>`
     :`<div class="popup-price none">価格未登録</div>`;
-  const commentHtml=s.comment?`<div class="popup-comment">💬 ${esc(s.comment)}</div>`:"";
+  const commentHtml=s.comment?`<div class="popup-comment">💬 ${s.comment}</div>`:"";
   const dateHtml=s.ts?`<div class="popup-date">🕐 ${ageLabelFull(s.ts)}</div>`:"";
-  const byHtml=s.nickname?`<div class="popup-by">👤 ${esc(s.nickname)}</div>`:"";
-  const div=document.createElement("div");
-  div.innerHTML=`<b style="font-size:13px">${esc(s.name)}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}`;
-  const btn=document.createElement("button");
-  btn.className="popup-edit-btn";
-  btn.textContent="✏️ 価格を更新する";
-  btn.onclick=()=>{map.closePopup();openEditPanel(id);};
-  div.appendChild(btn);
-  return div;
+  const byHtml=s.nickname?`<div class="popup-by">👤 ${s.nickname}</div>`:"";
+  return`<b style="font-size:13px">${s.name}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}
+    <button class="popup-edit-btn" onclick="map.closePopup();openEditPanel('${id}')">✏️ 価格を更新する</button>`;
 }
 function updateMarker(id){
   const s=stations[id];if(!s||!markers[id])return;
@@ -314,25 +319,18 @@ function addMarker(id){
 }
 
 // GAS通信（GETのみ、パラメータでaction指定）
-// HTTPエラー・サーバー側のエラー応答を検知して例外にする
 async function gasCall(params){
   const url=GAS_URL+"?"+new URLSearchParams(params);
   const res=await fetch(url);
-  if(!res.ok)throw new Error("HTTP "+res.status);
-  const result=await res.json();
-  if(result&&result.status&&result.status!=="ok"){
-    throw new Error(result.message||"サーバーエラー");
-  }
-  return result;
+  return res.json();
 }
 
-// 全データをGASから取得してマップに展開（再取得時は既存マーカーを消してから反映）
+// 全データをGASから取得してマップに展開
 async function loadFromServer(){
   try{
     const result=await gasCall({action:"getAll"});
+    if(result.status!=="ok") throw new Error(result.message);
     const rows=result.data||[];
-    Object.values(markers).forEach(m=>map.removeLayer(m));
-    markers={};stations={};
     document.getElementById("osm-status").textContent=
       "📍 "+rows.length+"件のスタンドを読み込みました（スプレッドシート）";
     document.getElementById("header-sub").textContent=
@@ -344,12 +342,11 @@ async function loadFromServer(){
       const lng=parseFloat(row.lng);
       if(!id||isNaN(lat)||isNaN(lng))return;
       const ts=parseDateToTs(row.confirmedDate);
-      const p=Number(row.price);
       stations[id]={
         id,
         name:row.name||"ガソリンスタンド",
         lat,lng,
-        price:(row.price!==""&&row.price!=null&&isFinite(p))?p:null,
+        price:row.price?Number(row.price):null,
         comment:row.comment||"",
         ts,
         nickname:row.nickname||"",
@@ -377,11 +374,7 @@ function openEditPanel(id){
   document.getElementById("pin-name").style.display="flex";
   document.getElementById("pin-name-text").textContent="📍 "+s.name;
   document.getElementById("name-edit-row").style.display="none";
-  // 誤登録防止のため自動入力はせず、参考価格はプレースホルダーで表示する
-  const editPriceInput=document.getElementById("in-price");
-  const editSuggested=getSuggestedPrice();
-  editPriceInput.value=s.price||"";
-  editPriceInput.placeholder=editSuggested?("参考：直近3日の最高値 "+editSuggested):"";
+  document.getElementById("in-price").value=s.price||(getSuggestedPrice()||"");
   document.getElementById("in-comment").value=s.comment||"";
   document.getElementById("err-msg").textContent="";
   document.getElementById("clear-price-btn").style.display=s.price?"inline-block":"none";
@@ -407,11 +400,8 @@ function openNewPanel(lat,lng){
   document.getElementById("name-row").style.display="block";
   document.getElementById("pin-name").style.display="none";
   ["in-name","in-comment"].forEach(i=>document.getElementById(i).value="");
-  // 誤登録防止のため自動入力はせず、参考価格はプレースホルダーで表示する
-  const newPriceInput=document.getElementById("in-price");
   const suggested=getSuggestedPrice();
-  newPriceInput.value="";
-  newPriceInput.placeholder=suggested?("参考：直近3日の最高値 "+suggested):"";
+  document.getElementById("in-price").value=suggested||"";
   document.getElementById("err-msg").textContent="";
   document.getElementById("clear-price-btn").style.display="none";
   updateSubmitterInfo();
@@ -445,33 +435,54 @@ async function submitForm(){
       const lat=tempMarker._newLat,lng=tempMarker._newLng;
       const id="custom_"+(Date.now());
       await gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
+      stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
+      if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
+      addMarker(id);
     }else{
       if(!editingId)return;
       await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
         lat:stations[editingId].lat,lng:stations[editingId].lng,
         price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
+      stations[editingId].price=price;stations[editingId].comment=comment;
+      stations[editingId].ts=ts;stations[editingId].nickname=myNickname;stations[editingId].device=myDevice;
+      updateMarker(editingId);
     }
-    // 他のユーザーの更新も含めてサーバーから取り直す
-    await loadFromServer();
-    closePanel();showToast("✅ 登録しました");
+    renderList();closePanel();showToast("✅ 登録しました");
   }catch(e){
     document.getElementById("err-msg").textContent="通信エラー："+e.message;
   }finally{
     document.getElementById("submit-btn").disabled=false;
   }
 }
+// 独自確認ダイアログ（Promiseベース）
+function askConfirm(msg){
+  return new Promise(resolve=>{
+    document.getElementById("confirm-msg").textContent=msg;
+    document.getElementById("confirm-overlay").style.display="flex";
+    document.getElementById("confirm-ok").onclick=()=>{
+      document.getElementById("confirm-overlay").style.display="none";
+      resolve(true);
+    };
+    document.getElementById("confirm-cancel").onclick=()=>{
+      document.getElementById("confirm-overlay").style.display="none";
+      resolve(false);
+    };
+  });
+}
 async function clearPrice(){
   if(!editingId)return;
-  if(!confirm("「"+stations[editingId].name+"」\n価格・コメント・確認日をクリアします。\nスタンド自体は地図に残ります。"))return;
-  try{
-    await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
-      lat:stations[editingId].lat,lng:stations[editingId].lng,
-      price:"",comment:"",confirmedDate:"",nickname:myNickname,device:myDevice});
-    await loadFromServer();
-    closePanel();showToast("💰 価格をクリアしました");
-  }catch(e){
-    document.getElementById("err-msg").textContent="通信エラー："+e.message;
-  }
+  const ok1=await askConfirm("「"+stations[editingId].name+"」\n価格・コメント・確認日をクリアします。\nスタンド自体は地図に残ります。");
+  if(!ok1)return;
+  const cid=editingId;
+  const s=stations[cid];
+  // 先に画面更新（楽観的）
+  s.price=null;s.comment="";s.ts=null;
+  updateMarker(cid);renderList();closePanel();showToast("💰 価格をクリアしました");
+  // サーバー送信は裏で
+  gasCall({action:"upsert",id:cid,name:s.name,lat:s.lat,lng:s.lng,
+    price:"",comment:"",confirmedDate:"",nickname:myNickname,device:myDevice}).catch(e=>{
+    showToast("⚠️ サーバー更新に失敗しました");
+  });
 }
 function openNameEdit(){
   if(!editingId)return;
@@ -496,7 +507,9 @@ async function saveNameEdit(){
       price:s.price||"",comment:s.comment||"",
       confirmedDate:s.ts?confirmedDateStr(s.ts):"",
       nickname:myNickname,device:myDevice});
-    await loadFromServer();
+    stations[editingId].name=newName;
+    updateMarker(editingId);
+    renderList();
     document.getElementById("pin-name-text").textContent="📍 "+newName;
     document.getElementById("panel-mode-badge").textContent="編集中："+newName;
     closeNameEdit();
@@ -507,14 +520,17 @@ async function saveNameEdit(){
 }
 async function deleteStation(){
   if(!editingId)return;
-  if(!confirm("「"+stations[editingId].name+"」\nこのスタンドを完全に削除しますか？\n※スプレッドシートからも削除されます"))return;
-  try{
-    await gasCall({action:"delete",id:editingId});
-    await loadFromServer();
-    closePanel();showToast("🗑️ 削除しました");
-  }catch(e){
-    document.getElementById("err-msg").textContent="通信エラー："+e.message;
-  }
+  const ok2=await askConfirm("「"+stations[editingId].name+"」\nこのスタンドを完全に削除しますか？\n※スプレッドシートからも削除されます");
+  if(!ok2)return;
+  const delId=editingId;
+  // 先に画面から消す（楽観的更新）
+  if(markers[delId]){map.removeLayer(markers[delId]);delete markers[delId];}
+  delete stations[delId];
+  renderList();closePanel();showToast("🗑️ 削除しました");
+  // サーバー送信は裏で
+  gasCall({action:"delete",id:delId}).catch(e=>{
+    showToast("⚠️ サーバー削除に失敗しました");
+  });
 }
 function renderList(){
   const c=document.getElementById("list-container");
@@ -525,55 +541,91 @@ function renderList(){
   arr.sort((a,b)=>a.price-b.price);
   c.innerHTML=arr.map(s=>{
     const cls=freshClass(s.ts||null);
-    return`<div class="s-item ${cls}" data-id="${esc(s.id)}">
+    return`<div class="s-item ${cls}" onclick="focusStation('${s.id}')">
       <div class="s-info">
-        <div class="s-name">${esc(s.name)}</div>
+        <div class="s-name">${s.name}</div>
         ${s.ts?`<div class="s-sub">${ageLabelFull(s.ts)}</div>`:""}
-        ${s.comment?`<div class="s-comment">💬 ${esc(s.comment)}</div>`:""}
-        ${s.nickname?`<div class="s-by">👤 ${esc(s.nickname)}</div>`:""}
+        ${s.comment?`<div class="s-comment">💬 ${s.comment}</div>`:""}
+        ${s.nickname?`<div class="s-by">👤 ${s.nickname}</div>`:""}
       </div>
       <div class="s-price ${cls}">¥${s.price}</div>
     </div>`;
   }).join("");
-  c.querySelectorAll(".s-item").forEach(el=>{
-    el.addEventListener("click",()=>focusStation(el.dataset.id));
-  });
 }
 function focusStation(id){
   const s=stations[id];if(!s)return;
   map.setView([s.lat,s.lng],16,{animate:true});
   if(markers[id])markers[id].openPopup();
 }
+function setLocationMarker(lat,lng,fly){
+  if(currentLocationMarker)map.removeLayer(currentLocationMarker);
+  const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
+  currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地");
+  if(fly)map.setView([lat,lng],15,{animate:true});
+}
 function goToCurrentLocation(){
   if(!navigator.geolocation){showToast("位置情報が使えません");return;}
+  // キャッシュがあれば即座に表示
+  const cached=localStorage.getItem("gas_lastloc");
+  if(cached){
+    try{const c=JSON.parse(cached);setLocationMarker(c.lat,c.lng,true);}catch(e){}
+  }
   navigator.geolocation.getCurrentPosition(pos=>{
     const lat=pos.coords.latitude,lng=pos.coords.longitude;
-    map.setView([lat,lng],15,{animate:true});
-    if(currentLocationMarker)map.removeLayer(currentLocationMarker);
-    const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
-    currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地").openPopup();
-  },()=>showToast("位置情報を取得できませんでした"));
+    localStorage.setItem("gas_lastloc",JSON.stringify({lat,lng}));
+    setLocationMarker(lat,lng,true);
+    if(currentLocationMarker)currentLocationMarker.openPopup();
+  },()=>showToast("位置情報を取得できませんでした"),
+  {enableHighAccuracy:true,timeout:8000,maximumAge:60000});
 }
 
 function initMap(){
-  map=L.map("map").setView([26.591,127.977],13);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  map=L.map("map",{zoomControl:true}).setView([26.591,127.977],13);
+
+  // GSI航空写真（衛星）
+  const baseSat=L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{
+    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>',
+    maxZoom:18,maxNativeZoom:18
+  });
+  // CARTOの地名ラベル（日本語対応）
+  const labelLayer=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",{
+    attribution:'© <a href="https://carto.com/">CARTO</a>',
+    maxZoom:19,opacity:1
+  });
+  // 衛星＋地名（デフォルト）
+  const baseSatLabeled=L.layerGroup([baseSat,labelLayer]);
+  // OpenStreetMap
+  const baseOSM=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
     attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19
-  }).addTo(map);
+  });
+  // Carto 淡色
+  const baseLight=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
+    attribution:'© <a href="https://carto.com/">CARTO</a>',maxZoom:19
+  });
+
+  baseSatLabeled.addTo(map);
+
+  L.control.layers({
+    "🛰 航空写真＋地名":baseSatLabeled,
+    "🗺 地図（Carto）":baseLight,
+    "🗺 地図（OSM）":baseOSM
+  },{},{position:"topright",collapsed:true}).addTo(map);
   map.on("click",e=>openNewPanel(e.latlng.lat,e.latlng.lng));
+  // 起動時：前回位置キャッシュがあれば即表示
+  const cached=localStorage.getItem("gas_lastloc");
+  if(cached){
+    try{const c=JSON.parse(cached);map.setView([c.lat,c.lng],14);setLocationMarker(c.lat,c.lng,false);}catch(e){}
+  }
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(pos=>{
-      map.setView([pos.coords.latitude,pos.coords.longitude],15);
-      const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
-      currentLocationMarker=L.marker([pos.coords.latitude,pos.coords.longitude],{icon}).addTo(map).bindPopup("🔵 現在地");
-    },()=>{});
+      const lat=pos.coords.latitude,lng=pos.coords.longitude;
+      localStorage.setItem("gas_lastloc",JSON.stringify({lat,lng}));
+      map.setView([lat,lng],15);
+      setLocationMarker(lat,lng,false);
+    },()=>{},{enableHighAccuracy:true,timeout:8000,maximumAge:60000});
   }
   setDateOffset(0);
   loadFromServer();
-  // 3分ごとに自動更新（入力パネルを開いている間はスキップ）
-  setInterval(()=>{
-    if(document.getElementById("panel").style.display!=="block")loadFromServer();
-  },180000);
 }
 
 window.addEventListener("load",()=>{
