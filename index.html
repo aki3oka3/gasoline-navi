@@ -527,8 +527,10 @@ async function deleteStation(){
   if(markers[delId]){map.removeLayer(markers[delId]);delete markers[delId];}
   delete stations[delId];
   renderList();closePanel();showToast("🗑️ 削除しました");
-  // サーバー送信は裏で
-  gasCall({action:"delete",id:delId}).catch(e=>{
+  // サーバー送信は裏で（本人確認のため nickname / device も送る）
+  gasCall({action:"delete",id:delId,nickname:myNickname,device:myDevice}).then(r=>{
+    if(r&&r.status==="error"){showToast("⚠️ "+(r.message||"削除できませんでした"));}
+  }).catch(e=>{
     showToast("⚠️ サーバー削除に失敗しました");
   });
 }
