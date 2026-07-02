@@ -293,16 +293,17 @@ function makeIcon(cls,price){
 function makeTempIcon(){
   return L.divIcon({html:`<div class="gas-pin new-pin">新規</div>`,className:"",iconAnchor:[22,22],popupAnchor:[0,-26]});
 }
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function buildPopup(id){
   const s=stations[id];if(!s)return"";
   const cls=freshClass(s.ts||null);
   const priceHtml=s.price
     ?`<div class="popup-price ${cls}">¥${s.price} /L</div>`
     :`<div class="popup-price none">価格未登録</div>`;
-  const commentHtml=s.comment?`<div class="popup-comment">💬 ${s.comment}</div>`:"";
+  const commentHtml=s.comment?`<div class="popup-comment">💬 ${escapeHtml(s.comment)}</div>`:"";
   const dateHtml=s.ts?`<div class="popup-date">🕐 ${ageLabelFull(s.ts)}</div>`:"";
-  const byHtml=s.nickname?`<div class="popup-by">👤 ${s.nickname}</div>`:"";
-  return`<b style="font-size:13px">${s.name}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}
+  const byHtml=s.nickname?`<div class="popup-by">👤 ${escapeHtml(s.nickname)}</div>`:"";
+  return`<b style="font-size:13px">${escapeHtml(s.name)}</b>${priceHtml}${commentHtml}${dateHtml}${byHtml}
     <button class="popup-edit-btn" onclick="map.closePopup();openEditPanel('${id}')">✏️ 価格を更新する</button>`;
 }
 function updateMarker(id){
@@ -419,7 +420,7 @@ function closePanel(){
   ["in-price","in-comment","in-name"].forEach(i=>document.getElementById(i).value="");
   document.getElementById("err-msg").textContent="";
 }
-async function submitForm(){
+function submitForm(){
   const price=parseInt(document.getElementById("in-price").value);
   const comment=document.getElementById("in-comment").value.trim();
   if(isNaN(price)||price<100||price>300){
@@ -427,31 +428,32 @@ async function submitForm(){
   }
   const ts=offsetToTs(selectedOffset);
   const cds=confirmedDateStr(ts);
-  document.getElementById("submit-btn").disabled=true;
-  try{
-    if(isNewMode){
-      const name=document.getElementById("in-name").value.trim();
-      if(!name){document.getElementById("err-msg").textContent="スタンド名を入力してください";return;}
-      const lat=tempMarker._newLat,lng=tempMarker._newLng;
-      const id="custom_"+(Date.now());
-      await gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
-      stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
-      if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
-      addMarker(id);
-    }else{
-      if(!editingId)return;
-      await gasCall({action:"upsert",id:editingId,name:stations[editingId].name,
-        lat:stations[editingId].lat,lng:stations[editingId].lng,
-        price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice});
-      stations[editingId].price=price;stations[editingId].comment=comment;
-      stations[editingId].ts=ts;stations[editingId].nickname=myNickname;stations[editingId].device=myDevice;
-      updateMarker(editingId);
-    }
+  if(isNewMode){
+    const name=document.getElementById("in-name").value.trim();
+    if(!name){document.getElementById("err-msg").textContent="スタンド名を入力してください";return;}
+    const lat=tempMarker._newLat,lng=tempMarker._newLng;
+    const id="custom_"+(Date.now());
+    // 先に画面へ反映（楽観的更新）
+    stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
+    if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
+    addMarker(id);
     renderList();closePanel();showToast("✅ 登録しました");
-  }catch(e){
-    document.getElementById("err-msg").textContent="通信エラー："+e.message;
-  }finally{
-    document.getElementById("submit-btn").disabled=false;
+    // サーバー送信は裏で
+    gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice})
+      .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
+  }else{
+    if(!editingId)return;
+    const id=editingId;
+    // 先に画面へ反映（楽観的更新）
+    stations[id].price=price;stations[id].comment=comment;
+    stations[id].ts=ts;stations[id].nickname=myNickname;stations[id].device=myDevice;
+    updateMarker(id);
+    renderList();closePanel();showToast("✅ 登録しました");
+    // サーバー送信は裏で
+    gasCall({action:"upsert",id,name:stations[id].name,
+      lat:stations[id].lat,lng:stations[id].lng,
+      price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice})
+      .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
   }
 }
 // 独自確認ダイアログ（Promiseベース）
@@ -496,27 +498,26 @@ function closeNameEdit(){
   document.getElementById("name-edit-row").style.display="none";
   document.getElementById("pin-name").style.display="flex";
 }
-async function saveNameEdit(){
+function saveNameEdit(){
   if(!editingId)return;
   const newName=document.getElementById("in-name-edit").value.trim();
   if(!newName){alert("スタンド名を入力してください");return;}
   const s=stations[editingId];
-  try{
-    await gasCall({action:"upsert",id:editingId,name:newName,
-      lat:s.lat,lng:s.lng,
-      price:s.price||"",comment:s.comment||"",
-      confirmedDate:s.ts?confirmedDateStr(s.ts):"",
-      nickname:myNickname,device:myDevice});
-    stations[editingId].name=newName;
-    updateMarker(editingId);
-    renderList();
-    document.getElementById("pin-name-text").textContent="📍 "+newName;
-    document.getElementById("panel-mode-badge").textContent="編集中："+newName;
-    closeNameEdit();
-    showToast("✅ スタンド名を変更しました");
-  }catch(e){
-    alert("通信エラー："+e.message);
-  }
+  // 先に画面へ反映（楽観的更新）
+  stations[editingId].name=newName;
+  updateMarker(editingId);
+  renderList();
+  document.getElementById("pin-name-text").textContent="📍 "+newName;
+  document.getElementById("panel-mode-badge").textContent="編集中："+newName;
+  closeNameEdit();
+  showToast("✅ スタンド名を変更しました");
+  // サーバー送信は裏で
+  gasCall({action:"upsert",id:editingId,name:newName,
+    lat:s.lat,lng:s.lng,
+    price:s.price||"",comment:s.comment||"",
+    confirmedDate:s.ts?confirmedDateStr(s.ts):"",
+    nickname:myNickname,device:myDevice})
+    .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
 }
 async function deleteStation(){
   if(!editingId)return;
@@ -545,10 +546,10 @@ function renderList(){
     const cls=freshClass(s.ts||null);
     return`<div class="s-item ${cls}" onclick="focusStation('${s.id}')">
       <div class="s-info">
-        <div class="s-name">${s.name}</div>
+        <div class="s-name">${escapeHtml(s.name)}</div>
         ${s.ts?`<div class="s-sub">${ageLabelFull(s.ts)}</div>`:""}
-        ${s.comment?`<div class="s-comment">💬 ${s.comment}</div>`:""}
-        ${s.nickname?`<div class="s-by">👤 ${s.nickname}</div>`:""}
+        ${s.comment?`<div class="s-comment">💬 ${escapeHtml(s.comment)}</div>`:""}
+        ${s.nickname?`<div class="s-by">👤 ${escapeHtml(s.nickname)}</div>`:""}
       </div>
       <div class="s-price ${cls}">¥${s.price}</div>
     </div>`;
