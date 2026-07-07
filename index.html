@@ -16,9 +16,9 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
-#header{padding:10px 16px;background:#fff;border-bottom:1px solid #e0e0e0}
-#header h1{font-size:16px;font-weight:700;color:#222}
-#header .sub{font-size:11px;color:#888;margin-top:2px}
+#header{padding:10px 16px;background:#1a7a35;color:#fff}
+#header h1{font-size:16px;font-weight:700}
+#header .sub{font-size:11px;opacity:.9;margin-top:2px}
 #legend-wrap{padding:8px 16px;background:#fff;border-bottom:1px solid #e0e0e0}
 #badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
 .badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:20px;font-weight:500;border:1.5px solid}
@@ -29,7 +29,7 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 #legend-note{font-size:11px;color:#888}
 #map-hint{padding:9px 16px;font-size:13px;font-weight:600;color:#7a5c00;background:#fffbe6;border-bottom:2px solid #f0c040;text-align:center}
 #map-wrap{position:relative}
-#map{width:100%;height:360px}
+#map{width:100%;height:56vh;min-height:320px}
 #locate-btn{position:absolute;bottom:10px;right:10px;z-index:1000;width:36px;height:36px;background:#fff;border:2px solid #bbb;border-radius:8px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.2)}
 #locate-btn:hover{background:#f0f8f2;border-color:#1a7a35}
 #osm-status{padding:5px 16px;font-size:11px;color:#888;background:#f9f9f9;border-bottom:1px solid #eee;min-height:22px}
@@ -103,7 +103,7 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 .gas-pin.warn{background:#fff;border-color:#cc8800;color:#996600}
 .gas-pin.stale{background:#fff;border-color:#c0392b;color:#c0392b}
 .gas-pin.new-pin{background:#fff;border-color:#4285f4;color:#4285f4;border-style:dashed}
-#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 22px;border-radius:20px;font-size:13px;display:none;z-index:9999;white-space:nowrap}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;display:none;z-index:9999;white-space:nowrap}
 .popup-price{font-size:20px;font-weight:700;margin:4px 0 2px}
 .popup-price.fresh{color:#1a7a35}.popup-price.warn{color:#996600}.popup-price.stale{color:#c0392b}.popup-price.none{color:#aaa;font-size:14px;font-weight:400}
 .popup-comment{font-size:12px;color:#555;margin:3px 0;padding:4px 8px;background:#f9f9f9;border-radius:4px}
@@ -111,6 +111,8 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 .popup-by{font-size:10px;color:#bbb;margin-top:2px}
 .popup-edit-btn{display:block;width:100%;margin-top:8px;padding:7px;background:#e8f5e9;border:1px solid #1a7a35;color:#1a7a35;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;text-align:center}
 #loading-msg{padding:40px;text-align:center;color:#888;font-size:14px}
+.loc-pop .leaflet-popup-content{margin:6px 12px;font-size:13px;white-space:nowrap;min-width:0!important;width:auto!important}
+.loc-pop .leaflet-popup-content-wrapper{border-radius:14px}
 </style>
 </head>
 <body>
@@ -221,6 +223,10 @@ let selectedOffset=0,currentLocationMarker=null,tempMarker=null;
 let nextCustomId=1;
 let myNickname="",myDevice="";
 
+function escapeHtml(str){
+  if(!str)return"";
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
 function getDevice(){
   const ua=navigator.userAgent;
   if(/iPhone/.test(ua))return"iPhone";
@@ -293,7 +299,6 @@ function makeIcon(cls,price){
 function makeTempIcon(){
   return L.divIcon({html:`<div class="gas-pin new-pin">新規</div>`,className:"",iconAnchor:[22,22],popupAnchor:[0,-26]});
 }
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function buildPopup(id){
   const s=stations[id];if(!s)return"";
   const cls=freshClass(s.ts||null);
@@ -420,7 +425,7 @@ function closePanel(){
   ["in-price","in-comment","in-name"].forEach(i=>document.getElementById(i).value="");
   document.getElementById("err-msg").textContent="";
 }
-function submitForm(){
+async function submitForm(){
   const price=parseInt(document.getElementById("in-price").value);
   const comment=document.getElementById("in-comment").value.trim();
   if(isNaN(price)||price<100||price>300){
@@ -428,30 +433,27 @@ function submitForm(){
   }
   const ts=offsetToTs(selectedOffset);
   const cds=confirmedDateStr(ts);
+  // 楽観的更新：先に画面反映、サーバー送信は裏で
   if(isNewMode){
     const name=document.getElementById("in-name").value.trim();
     if(!name){document.getElementById("err-msg").textContent="スタンド名を入力してください";return;}
     const lat=tempMarker._newLat,lng=tempMarker._newLng;
     const id="custom_"+(Date.now());
-    // 先に画面へ反映（楽観的更新）
     stations[id]={id,name,lat,lng,price,comment,ts,nickname:myNickname,device:myDevice};
     if(tempMarker){map.removeLayer(tempMarker);tempMarker=null;}
     addMarker(id);
     renderList();closePanel();showToast("✅ 登録しました");
-    // サーバー送信は裏で
     gasCall({action:"upsert",id,name,lat,lng,price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice})
       .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
   }else{
     if(!editingId)return;
-    const id=editingId;
-    // 先に画面へ反映（楽観的更新）
-    stations[id].price=price;stations[id].comment=comment;
-    stations[id].ts=ts;stations[id].nickname=myNickname;stations[id].device=myDevice;
-    updateMarker(id);
+    const eid=editingId;
+    stations[eid].price=price;stations[eid].comment=comment;
+    stations[eid].ts=ts;stations[eid].nickname=myNickname;stations[eid].device=myDevice;
+    updateMarker(eid);
     renderList();closePanel();showToast("✅ 登録しました");
-    // サーバー送信は裏で
-    gasCall({action:"upsert",id,name:stations[id].name,
-      lat:stations[id].lat,lng:stations[id].lng,
+    gasCall({action:"upsert",id:eid,name:stations[eid].name,
+      lat:stations[eid].lat,lng:stations[eid].lng,
       price,comment,confirmedDate:cds,nickname:myNickname,device:myDevice})
       .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
   }
@@ -498,26 +500,27 @@ function closeNameEdit(){
   document.getElementById("name-edit-row").style.display="none";
   document.getElementById("pin-name").style.display="flex";
 }
-function saveNameEdit(){
+async function saveNameEdit(){
   if(!editingId)return;
   const newName=document.getElementById("in-name-edit").value.trim();
   if(!newName){alert("スタンド名を入力してください");return;}
   const s=stations[editingId];
-  // 先に画面へ反映（楽観的更新）
-  stations[editingId].name=newName;
-  updateMarker(editingId);
-  renderList();
-  document.getElementById("pin-name-text").textContent="📍 "+newName;
-  document.getElementById("panel-mode-badge").textContent="編集中："+newName;
-  closeNameEdit();
-  showToast("✅ スタンド名を変更しました");
-  // サーバー送信は裏で
-  gasCall({action:"upsert",id:editingId,name:newName,
-    lat:s.lat,lng:s.lng,
-    price:s.price||"",comment:s.comment||"",
-    confirmedDate:s.ts?confirmedDateStr(s.ts):"",
-    nickname:myNickname,device:myDevice})
-    .catch(e=>showToast("⚠️ サーバー保存に失敗しました"));
+  try{
+    await gasCall({action:"upsert",id:editingId,name:newName,
+      lat:s.lat,lng:s.lng,
+      price:s.price||"",comment:s.comment||"",
+      confirmedDate:s.ts?confirmedDateStr(s.ts):"",
+      nickname:myNickname,device:myDevice});
+    stations[editingId].name=newName;
+    updateMarker(editingId);
+    renderList();
+    document.getElementById("pin-name-text").textContent="📍 "+newName;
+    document.getElementById("panel-mode-badge").textContent="編集中："+newName;
+    closeNameEdit();
+    showToast("✅ スタンド名を変更しました");
+  }catch(e){
+    alert("通信エラー："+e.message);
+  }
 }
 async function deleteStation(){
   if(!editingId)return;
@@ -528,10 +531,8 @@ async function deleteStation(){
   if(markers[delId]){map.removeLayer(markers[delId]);delete markers[delId];}
   delete stations[delId];
   renderList();closePanel();showToast("🗑️ 削除しました");
-  // サーバー送信は裏で（本人確認のため nickname / device も送る）
-  gasCall({action:"delete",id:delId,nickname:myNickname,device:myDevice}).then(r=>{
-    if(r&&r.status==="error"){showToast("⚠️ "+(r.message||"削除できませんでした"));}
-  }).catch(e=>{
+  // サーバー送信は裏で
+  gasCall({action:"delete",id:delId}).catch(e=>{
     showToast("⚠️ サーバー削除に失敗しました");
   });
 }
@@ -563,8 +564,8 @@ function focusStation(id){
 function setLocationMarker(lat,lng,fly){
   if(currentLocationMarker)map.removeLayer(currentLocationMarker);
   const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
-  currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地");
-  if(fly)map.setView([lat,lng],15,{animate:true});
+  currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地",{minWidth:0,closeButton:false,className:"loc-pop"});
+  if(fly)map.setView([lat,lng],16,{animate:true});
 }
 function goToCurrentLocation(){
   if(!navigator.geolocation){showToast("位置情報が使えません");return;}
@@ -578,54 +579,56 @@ function goToCurrentLocation(){
     localStorage.setItem("gas_lastloc",JSON.stringify({lat,lng}));
     setLocationMarker(lat,lng,true);
     if(currentLocationMarker)currentLocationMarker.openPopup();
-  },()=>showToast("位置情報を取得できませんでした"),
-  {enableHighAccuracy:true,timeout:8000,maximumAge:60000});
+  },()=>showToast("位置情報を取得できませんでした"));
 }
 
 function initMap(){
-  map=L.map("map",{zoomControl:true}).setView([26.591,127.977],13);
+  map=L.map("map",{zoomControl:true}).setView([26.591,127.977],14);
 
-  // GSI航空写真（衛星）
-  const baseSat=L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{
-    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>',
-    maxZoom:18,maxNativeZoom:18
+  // 地図レイヤー（災害マップ・まちのいまと共通の4種構成）
+  const gsiPhoto=L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{
+    attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル（写真）</a>',
+    maxNativeZoom:18,maxZoom:20
   });
-  // CARTOの地名ラベル（日本語対応）
-  const labelLayer=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",{
-    attribution:'© <a href="https://carto.com/">CARTO</a>',
-    maxZoom:19,opacity:1
+  const satLabels=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",{
+    attribution:'© CARTO',subdomains:"abcd",maxZoom:20
   });
-  // 衛星＋地名（デフォルト）
-  const baseSatLabeled=L.layerGroup([baseSat,labelLayer]);
-  // OpenStreetMap
-  const baseOSM=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:19
+  const baseSatLabeled=L.layerGroup([gsiPhoto,satLabels]);
+  const cartoVoyager=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
+    attribution:'© OpenStreetMap, © CARTO',subdomains:"abcd",maxZoom:20
   });
-  // Carto 淡色
-  const baseLight=L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
-    attribution:'© <a href="https://carto.com/">CARTO</a>',maxZoom:19
+  const cartoLight=L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{
+    attribution:'© OpenStreetMap, © CARTO',subdomains:"abcd",maxZoom:20
   });
-
-  baseSatLabeled.addTo(map);
-
-  L.control.layers({
-    "🛰 航空写真＋地名":baseSatLabeled,
-    "🗺 地図（Carto）":baseLight,
-    "🗺 地図（OSM）":baseOSM
-  },{},{position:"topright",collapsed:true}).addTo(map);
+  const baseOsm=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    attribution:'© OpenStreetMap',maxNativeZoom:19,maxZoom:20
+  });
+  const baseLayers={
+    "航空写真＋地名":baseSatLabeled,
+    "Carto Voyager":cartoVoyager,
+    "Carto 淡色":cartoLight,
+    "OpenStreetMap":baseOsm
+  };
+  // 前回選んだレイヤーを復元（なければ航空写真＋地名）
+  const savedLayer=localStorage.getItem("gas_baselayer");
+  (baseLayers[savedLayer]||baseSatLabeled).addTo(map);
+  L.control.layers(baseLayers,null,{position:"topright",collapsed:true}).addTo(map);
+  map.on("baselayerchange",e=>localStorage.setItem("gas_baselayer",e.name));
   map.on("click",e=>openNewPanel(e.latlng.lat,e.latlng.lng));
   // 起動時：前回位置キャッシュがあれば即表示
   const cached=localStorage.getItem("gas_lastloc");
   if(cached){
-    try{const c=JSON.parse(cached);map.setView([c.lat,c.lng],14);setLocationMarker(c.lat,c.lng,false);}catch(e){}
+    try{const c=JSON.parse(cached);map.setView([c.lat,c.lng],16);setLocationMarker(c.lat,c.lng,false);}catch(e){}
   }
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(pos=>{
       const lat=pos.coords.latitude,lng=pos.coords.longitude;
       localStorage.setItem("gas_lastloc",JSON.stringify({lat,lng}));
-      map.setView([lat,lng],15);
-      setLocationMarker(lat,lng,false);
-    },()=>{},{enableHighAccuracy:true,timeout:8000,maximumAge:60000});
+      map.setView([lat,lng],16,{animate:true});
+      if(currentLocationMarker)map.removeLayer(currentLocationMarker);
+      const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
+      currentLocationMarker=L.marker([lat,lng],{icon}).addTo(map).bindPopup("🔵 現在地",{minWidth:0,closeButton:false,className:"loc-pop"}).openPopup();
+    },()=>{});
   }
   setDateOffset(0);
   loadFromServer();
