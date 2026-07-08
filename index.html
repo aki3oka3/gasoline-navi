@@ -16,7 +16,19 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
-#header{padding:10px 16px;background:#1a7a35;color:#fff}
+#header{padding:10px 16px;background:#1a7a35;color:#fff;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+/* 使い方ガイド */
+#help-btn { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.7); background: transparent; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; line-height: 1; }
+#help-btn:active { background: rgba(255,255,255,.2); }
+#guide-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 2100; display: none; align-items: center; justify-content: center; }
+#guide-box { background: #fff; border-radius: 14px; padding: 20px 18px; width: 340px; max-width: 92vw; max-height: 82vh; overflow-y: auto; }
+#guide-box h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #1a7a35; }
+#guide-box .g-sub { font-size: 12px; color: #888; margin-bottom: 14px; line-height: 1.6; }
+.g-step { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
+.g-step .g-icon { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; background: #e6f4ea; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.g-step .g-text { font-size: 13px; line-height: 1.65; color: #333; }
+.g-step .g-text b { color: #15612b; }
+#guide-close { width: 100%; padding: 11px; margin-top: 6px; background: #1a7a35; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; }
 #header h1{font-size:16px;font-weight:700}
 #header .sub{font-size:11px;opacity:.9;margin-top:2px}
 #legend-wrap{padding:8px 16px;background:#fff;border-bottom:1px solid #e0e0e0}
@@ -117,6 +129,34 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 </head>
 <body>
 
+<div id="guide-modal">
+  <div id="guide-box">
+    <h2>⛽ ガソリン価格ナビ の使い方</h2>
+    <div class="g-sub">スタンドの価格をみんなでメモして共有するアプリです。</div>
+    <div class="g-step">
+      <div class="g-icon">👀</div>
+      <div class="g-text"><b>見る</b><br>ピンの「¥」がそのスタンドの価格。色は情報の新しさで、<span style="color:#1a7a35;font-weight:700">緑=3日以内</span>、<span style="color:#996600;font-weight:700">黄=3〜5日</span>、<span style="color:#c0392b;font-weight:700">赤=5日超</span>（古い）、灰=未登録です。</div>
+    </div>
+    <div class="g-step">
+      <div class="g-icon">✏️</div>
+      <div class="g-text"><b>価格を登録する</b><br>① スタンドのピンをタップ<br>② 「価格を更新する」を押す<br>③ 価格と確認日を入れて登録<br>給油や通りすがりのメモが、みんなの「今どこが安いか」になります。</div>
+    </div>
+    <div class="g-step">
+      <div class="g-icon">➕</div>
+      <div class="g-text"><b>スタンドが地図にない時</b><br>地図の空白部分をタップすると、新しいスタンドを追加できます。</div>
+    </div>
+    <div class="g-step">
+      <div class="g-icon">📍</div>
+      <div class="g-text"><b>現在地</b><br>地図右下の📍ボタンで現在地に移動します。青い丸●が今いる場所です。</div>
+    </div>
+    <div class="g-step">
+      <div class="g-icon">😊</div>
+      <div class="g-text"><b>安心して使ってね</b><br>登録不要・無料。ニックネームひとつでOK、本名不要です。</div>
+    </div>
+    <button id="guide-close" onclick="closeGuide()">はじめる</button>
+  </div>
+</div>
+
 <div id="confirm-overlay">
   <div id="confirm-box">
     <div id="confirm-msg"></div>
@@ -137,8 +177,11 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 </div>
 
 <div id="header">
-  <h1>⛽ ガソリン価格ナビ</h1>
-  <div class="sub" id="header-sub">レギュラー — 沖縄県</div>
+  <div>
+    <h1>⛽ ガソリン価格ナビ</h1>
+    <div class="sub" id="header-sub">レギュラー — 沖縄県</div>
+  </div>
+  <button id="help-btn" onclick="showGuide()" title="使い方">？</button>
 </div>
 <div id="legend-wrap">
   <div id="badge-row">
@@ -244,7 +287,7 @@ function saveNickname(){
   myNickname=val;
   document.getElementById("nickname-modal").style.display="none";
   updateSubmitterInfo();
-  initMap();
+  if(!window._mapInited){window._mapInited=true;initMap();}
 }
 function updateSubmitterInfo(){
   document.getElementById("submitter-info").textContent="登録者："+myNickname;
@@ -634,15 +677,30 @@ function initMap(){
   loadFromServer();
 }
 
-window.addEventListener("load",()=>{
-  myDevice=getDevice();
+function showGuide(){document.getElementById("guide-modal").style.display="flex";}
+function closeGuide(){
+  document.getElementById("guide-modal").style.display="none";
+  try{localStorage.setItem("gas_guide_seen","1");}catch(e){}
+  afterGuide();
+}
+function afterGuide(){
   const saved=localStorage.getItem("gas_nickname");
   if(saved){
     myNickname=saved;
     updateSubmitterInfo();
-    initMap();
+    if(!window._mapInited){window._mapInited=true;initMap();}
   }else{
     document.getElementById("nickname-modal").style.display="flex";
+  }
+}
+window.addEventListener("load",()=>{
+  myDevice=getDevice();
+  let guideSeen="";
+  try{guideSeen=localStorage.getItem("gas_guide_seen");}catch(e){}
+  if(!guideSeen){
+    showGuide();          /* 初回：ガイド → はじめる → ニックネーム → 地図 */
+  }else{
+    afterGuide();         /* 2回目以降：従来どおり */
   }
 });
 </script>
