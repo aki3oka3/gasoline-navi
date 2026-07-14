@@ -46,6 +46,19 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 #locate-btn{position:absolute;bottom:10px;right:10px;z-index:1000;width:36px;height:36px;background:#fff;border:2px solid #bbb;border-radius:8px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.2)}
 #locate-btn:hover{background:#f0f8f2;border-color:#1a7a35}
 #osm-status{padding:5px 16px;font-size:11px;color:#888;background:#f9f9f9;border-bottom:1px solid #eee;min-height:22px}
+#search-bar{padding:8px 16px;background:#fff;border-bottom:1px solid #e0e0e0;position:relative}
+#station-search{width:100%;padding:8px 36px 8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}
+#station-search:focus{outline:none;border-color:#1a7a35}
+#search-clear{display:none;position:absolute;right:24px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;border-radius:50%;background:#ddd;color:#666;font-size:12px;cursor:pointer;line-height:1;padding:0}
+#search-clear:active{background:#ccc}
+#search-results{display:none;position:absolute;left:16px;right:16px;top:calc(100% - 4px);background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.18);z-index:1200;max-height:280px;overflow-y:auto}
+.sr-item{padding:9px 12px;font-size:13px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;align-items:center;gap:8px}
+.sr-item:last-child{border-bottom:none}
+.sr-item:active{background:#f7f7f7}
+.sr-price{font-weight:700;flex-shrink:0}
+.sr-price.fresh{color:#1a7a35}.sr-price.warn{color:#996600}.sr-price.stale{color:#c0392b}.sr-price.none{color:#aaa;font-weight:400;font-size:11px}
+.sr-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-none{padding:12px;font-size:12px;color:#999;text-align:center;line-height:1.6}
 #nickname-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center}
 #nickname-box{background:#fff;border-radius:12px;padding:24px 20px;width:300px;max-width:90vw}
 #nickname-box h2{font-size:15px;font-weight:700;margin-bottom:6px;color:#222}
@@ -109,7 +122,10 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 .s-sub{font-size:11px;color:#999;margin-top:2px}
 .s-comment{font-size:11px;color:#666;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .s-by{font-size:10px;color:#bbb;margin-top:1px}
+.s-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
 .s-price{font-size:18px;font-weight:700;white-space:nowrap;text-align:right}
+.s-map-btn{font-size:11px;padding:4px 10px;border-radius:12px;border:1px solid #1a7a35;background:#fff;color:#1a7a35;cursor:pointer;white-space:nowrap;font-weight:600}
+.s-map-btn:active{background:#e6f4ea}
 .s-price.fresh{color:#1a7a35}.s-price.warn{color:#996600}.s-price.stale{color:#c0392b}
 .gas-pin{display:inline-block;border:2px solid #999;border-radius:8px;padding:3px 7px;font-size:12px;font-weight:700;color:#999;white-space:nowrap;line-height:1.2;box-shadow:0 1px 4px rgba(0,0,0,.18);cursor:pointer;background:#f5f5f5}
 .gas-pin.fresh{background:#fff;border-color:#1a7a35;color:#1a7a35}
@@ -137,6 +153,10 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
     <div class="g-step">
       <div class="g-icon">👀</div>
       <div class="g-text"><b>見る</b><br>ピンの「¥」がそのスタンドの価格。色は情報の新しさで、<span style="color:#1a7a35;font-weight:700">緑=3日以内</span>、<span style="color:#996600;font-weight:700">黄=3〜5日</span>、<span style="color:#c0392b;font-weight:700">赤=5日超</span>（古い）、灰=未登録です。</div>
+    </div>
+    <div class="g-step">
+      <div class="g-icon">🔍</div>
+      <div class="g-text"><b>検索と一覧</b><br>地図の上の検索でスタンド名から探せます。下の一覧は<b>地図に表示している範囲</b>のスタンドが安い順に並びます（地図を動かすと切り替わります）。「🗺 地図」ボタンで地図がそのスタンドに移動します。</div>
     </div>
     <div class="g-step">
       <div class="g-icon">✏️</div>
@@ -194,6 +214,11 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
   <div id="legend-note">ピンの色は確認日からの経過日数を表しています。</div>
 </div>
 <div id="map-hint">📍 スタンドをタップして価格登録 / 空白タップで新規追加</div>
+<div id="search-bar">
+  <input type="text" id="station-search" placeholder="🔍 スタンド名で検索（例：エネオス、りゅうせき）" autocomplete="off">
+  <button id="search-clear" onclick="clearSearch()" title="クリア">✕</button>
+  <div id="search-results"></div>
+</div>
 <div id="map-wrap">
   <div id="map"></div>
   <button id="locate-btn" onclick="goToCurrentLocation()" title="現在地へ">📍</button>
@@ -249,7 +274,7 @@ body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f5f5f2}
 </div>
 
 <div id="station-list">
-  <h2>登録済みスタンド一覧</h2>
+  <h2>この範囲のスタンド（価格の安い順）</h2>
   <div id="list-container">
     <div id="loading-msg">⏳ 読み込み中...</div>
   </div>
@@ -585,11 +610,14 @@ async function deleteStation(){
 }
 function renderList(){
   const c=document.getElementById("list-container");
-  const arr=Object.values(stations).filter(s=>s.price);
+  if(!map){return;}
+  const bounds=map.getBounds();
+  const arr=Object.values(stations).filter(s=>s.price&&bounds.contains([s.lat,s.lng]));
   if(!arr.length){
-    c.innerHTML='<div style="text-align:center;color:#aaa;font-size:13px;padding:16px">スタンドをタップして価格を登録してください</div>';return;
+    c.innerHTML='<div style="text-align:center;color:#aaa;font-size:13px;padding:20px">この範囲に価格情報はありません<br><span style="font-size:11px">地図を動かすか縮小すると切り替わります</span></div>';return;
   }
-  arr.sort((a,b)=>a.price-b.price);
+  // 安い順 → 同価格なら確認日が新しい順
+  arr.sort((a,b)=>(a.price-b.price)||((b.ts||0)-(a.ts||0)));
   c.innerHTML=arr.map(s=>{
     const cls=freshClass(s.ts||null);
     return`<div class="s-item ${cls}" onclick="focusStation('${s.id}')">
@@ -599,15 +627,76 @@ function renderList(){
         ${s.comment?`<div class="s-comment">💬 ${escapeHtml(s.comment)}</div>`:""}
         ${s.nickname?`<div class="s-by">👤 ${escapeHtml(s.nickname)}</div>`:""}
       </div>
-      <div class="s-price ${cls}">¥${s.price}</div>
+      <div class="s-right">
+        <div class="s-price ${cls}">¥${s.price}</div>
+        <button class="s-map-btn" onclick="event.stopPropagation();focusStation('${s.id}')">🗺 地図</button>
+      </div>
     </div>`;
   }).join("");
 }
 function focusStation(id){
   const s=stations[id];if(!s)return;
+  // 一覧から押したときは地図が画面外にあるので、地図までスクロールして見せる
+  document.getElementById("map-wrap").scrollIntoView({behavior:"smooth",block:"start"});
   map.setView([s.lat,s.lng],16,{animate:true});
   if(markers[id])markers[id].openPopup();
 }
+/* ===== スタンド名検索 ===== */
+function normSearch(s){
+  return String(s||"").toLowerCase()
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0))
+    .replace(/[ァ-ヶ]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0x60))
+    .replace(/[\s\u3000]/g,"");
+}
+function searchStations(qRaw){
+  const q=normSearch(qRaw);
+  if(!q)return[];
+  const out=[];
+  for(const s of Object.values(stations)){
+    if(out.length>=12)break;
+    if(normSearch(s.name).indexOf(q)>=0||normSearch(s.comment).indexOf(q)>=0){out.push(s);}
+  }
+  return out;
+}
+function hideSearchResults(){document.getElementById("search-results").style.display="none";}
+function clearSearch(){
+  const si=document.getElementById("station-search");
+  si.value="";
+  document.getElementById("search-clear").style.display="none";
+  hideSearchResults();
+  si.focus();
+}
+function renderSearchResults(list,qRaw){
+  const box=document.getElementById("search-results");
+  if(!qRaw){box.style.display="none";return;}
+  if(!list.length){
+    box.innerHTML='<div class="sr-none">見つかりませんでした</div>';
+    box.style.display="block";return;
+  }
+  box.innerHTML="";
+  list.forEach(s=>{
+    const cls=freshClass(s.ts||null);
+    const el=document.createElement("div");
+    el.className="sr-item";
+    el.innerHTML='<span class="sr-name">'+escapeHtml(s.name)+'</span>'+
+      (s.price?'<span class="sr-price '+cls+'">¥'+s.price+'</span>':'<span class="sr-price none">価格未登録</span>');
+    el.onclick=()=>{hideSearchResults();document.getElementById("station-search").blur();focusStation(s.id);};
+    box.appendChild(el);
+  });
+  box.style.display="block";
+}
+(function(){
+  const si=document.getElementById("station-search");
+  let t=null;
+  si.addEventListener("input",()=>{
+    document.getElementById("search-clear").style.display=si.value?"block":"none";
+    clearTimeout(t);
+    t=setTimeout(()=>renderSearchResults(searchStations(si.value),si.value.trim()),200);
+  });
+  document.addEventListener("click",e=>{
+    if(!document.getElementById("search-bar").contains(e.target))hideSearchResults();
+  });
+})();
 function setLocationMarker(lat,lng,fly){
   if(currentLocationMarker)map.removeLayer(currentLocationMarker);
   const icon=L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#4285f4;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>',className:"",iconAnchor:[8,8]});
@@ -662,6 +751,7 @@ function initMap(){
   L.control.layers(baseLayers,null,{position:"topright",collapsed:true}).addTo(map);
   map.on("baselayerchange",e=>localStorage.setItem("gas_baselayer",e.name));
   map.on("click",e=>openNewPanel(e.latlng.lat,e.latlng.lng));
+  map.on("moveend",renderList);  // 一覧は表示中の範囲に連動
   // 起動時：前回位置キャッシュがあれば即表示
   const cached=localStorage.getItem("gas_lastloc");
   if(cached){
